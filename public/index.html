@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculateur de Rentabilité Immobilière</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans,system-ui);font-size:14px;color:var(--color-text-primary,#1a1a1a);background:#f0f2f5;padding:12px}
+h2{font-size:16px;font-weight:500;margin-bottom:12px}
+.layout{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;max-width:1400px;margin:0 auto}
+@media(max-width:800px){.layout{grid-template-columns:1fr}}
+.panel{background:var(--color-background-primary,#fff);border:0.5px solid var(--color-border-tertiary,rgba(0,0,0,.15));border-radius:12px;padding:14px}
+.url-panel{margin-bottom:16px}
+.url-input-group{display:flex;gap:8px;margin-bottom:8px}
+.url-input-group input{flex:1;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px}
+.url-input-group input:focus{outline:none;border-color:#378ADD;box-shadow:0 0 0 3px rgba(55,138,221,0.1)}
+.btn{padding:10px 18px;background:#378ADD;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:background 0.2s}
+.btn:hover{background:#2a6db5}
+.btn:disabled{background:#ccc;cursor:not-allowed}
+.btn-outline{background:transparent;border:1px solid #378ADD;color:#378ADD}
+.btn-outline:hover{background:rgba(55,138,221,0.1)}
+.property-info{font-size:12px;color:#666;padding:8px 12px;background:#f8f9fa;border-radius:6px;display:none}
+.property-info.visible{display:block}
+.property-info .title{font-weight:500;color:#333;margin-bottom:2px}
+.section-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-secondary,#666);margin:14px 0 6px;border-bottom:0.5px solid var(--color-border-tertiary,rgba(0,0,0,.12));padding-bottom:4px}
+.section-label:first-child{margin-top:0}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.row label{font-size:12px;color:var(--color-text-secondary,#555);flex:1;min-width:0;display:flex;align-items:center;gap:6px}
+.row label .indicator{width:8px;height:8px;border-radius:50%;display:none}
+.row label .indicator.found{display:inline-block;background:#10b981}
+.row input[type=number]{width:90px;flex-shrink:0;font-size:12px;text-align:right;padding:6px 8px;border:1px solid var(--color-border-secondary,rgba(0,0,0,.25));border-radius:6px;background:var(--color-background-secondary,#f5f5f5);color:var(--color-text-primary);transition:all 0.2s}
+.row input[type=number]:focus{outline:none;border-color:#378ADD}
+.row input[type=number].from-listing{background:linear-gradient(135deg,#d1fae5,#a7f3d0);border-color:#10b981;font-weight:500}
+.row .unit{font-size:11px;color:var(--color-text-tertiary,#999);min-width:32px}
+.range-row{margin-bottom:8px}
+.range-row label{font-size:12px;color:var(--color-text-secondary);display:flex;justify-content:space-between;margin-bottom:3px}
+.range-row input[type=range]{width:100%;accent-color:#378ADD}
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.metric{background:var(--color-background-secondary,#f5f5f5);border-radius:8px;padding:10px 12px}
+.metric .lbl{font-size:11px;color:var(--color-text-secondary,#666);margin-bottom:3px}
+.metric .val{font-size:18px;font-weight:500}
+.metric.accent .val{color:#185FA5}
+.metric.green .val{color:#0F6E56}
+.metric.warn .val{color:#993C1D}
+.chart-wrap{position:relative;width:100%;height:320px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:11px;color:var(--color-text-secondary)}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend-line{width:18px;height:2px;border-radius:1px}
+.legend-found{display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f0fdf4;border-radius:6px;font-size:11px;color:#166534;margin-bottom:12px}
+.legend-found .dot{width:10px;height:10px;background:#10b981;border-radius:50%}
+.loading{display:none;align-items:center;gap:8px;font-size:12px;color:#666}
+.loading.visible{display:flex}
+.spinner{width:16px;height:16px;border:2px solid #ddd;border-top-color:#378ADD;border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.error{color:#dc2626;font-size:12px;padding:8px;background:#fef2f2;border-radius:6px;display:none}
+.error.visible{display:block}
+.helper-text{font-size:11px;color:#888;margin-top:2px}
+</style>
+</head>
+<body>
+<div class="layout">
+  <div>
+    <div class="panel url-panel">
+      <h2>📍 Importer une annonce</h2>
+      <div class="url-input-group">
+        <input type="text" id="urlInput" placeholder="Collez l'URL de l'annonce (bienici.com, seloger.com...)">
+        <button class="btn" id="fetchBtn" onclick="fetchListing()">Analyser</button>
+      </div>
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <span>Analyse de l'annonce en cours...</span>
+      </div>
+      <div class="error" id="error"></div>
+      <div class="property-info" id="propertyInfo">
+        <div class="title" id="propertyTitle"></div>
+        <div id="propertyLocation"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Paramètres</h2>
+      
+      <div class="legend-found">
+        <span class="dot"></span>
+        Les champs en vert proviennent de l'annonce
+      </div>
+
+      <div class="section-label">Bien immobilier</div>
+      <div class="row"><label><span class="indicator" id="ind-prix"></span>Prix du bien</label><input type="number" id="prix" value="200000" step="1000"><span class="unit">€</span></div>
+      <div class="row"><label><span class="indicator" id="ind-surface"></span>Surface</label><input type="number" id="surface" value="50" step="1"><span class="unit">m²</span></div>
+      <div class="row"><label><span class="indicator" id="ind-nombreChambres"></span>Nb chambres</label><input type="number" id="nombreChambres" value="2" step="1" min="1"><span class="unit">ch.</span></div>
+
+      <div class="section-label">Charges & Taxes</div>
+      <div class="row"><label><span class="indicator" id="ind-chargesCopro"></span>Charges copro</label><input type="number" id="chargesCopro" value="100" step="10"><span class="unit">€/mois</span></div>
+      <div class="row"><label><span class="indicator" id="ind-taxeFonciere"></span>Taxe foncière</label><input type="number" id="taxeFonciere" value="800" step="50"><span class="unit">€/an</span></div>
+      <div class="row"><label>Assurance PNO</label><input type="number" id="assurancePNO" value="150" step="10"><span class="unit">€/an</span></div>
+      <p class="helper-text" style="margin-left:4px;margin-bottom:8px">PNO = ~3€/m² par défaut</p>
+
+      <div class="section-label">Travaux & Ameublement</div>
+      <div class="row"><label>Estimation travaux</label><input type="number" id="travaux" value="0" step="500"><span class="unit">€</span></div>
+      <div class="row"><label>Prix meubles</label><input type="number" id="meubles" value="3000" step="500"><span class="unit">€</span></div>
+
+      <div class="section-label">Financement</div>
+      <div class="row"><label>Frais de notaire</label><input type="number" id="fraisNotaire" value="8" step="0.1" min="0" max="20"><span class="unit">%</span></div>
+      <div class="row"><label>Apport</label><input type="number" id="apport" value="20" step="0.5" min="0" max="100"><span class="unit">%</span></div>
+      <div class="row"><label>Durée prêt</label><input type="number" id="duree" value="20" step="1" min="1" max="30"><span class="unit">ans</span></div>
+      <div class="row"><label>Taux crédit</label><input type="number" id="taux" value="3.50" step="0.05" min="0" max="15"><span class="unit">%</span></div>
+      <div class="row"><label>Taux assurance</label><input type="number" id="tauxAssurance" value="0.30" step="0.01" min="0" max="5"><span class="unit">%</span></div>
+
+      <div class="section-label">Revenus locatifs</div>
+      <div class="row"><label>Loyer mensuel</label><input type="number" id="loyer" value="1200" step="50"><span class="unit">€/mois</span></div>
+      <p class="helper-text" style="margin-left:4px">Par défaut : 600€ × nombre de chambres</p>
+
+      <div class="section-label">Plage du graphique</div>
+      <div class="range-row">
+        <label><span>Prix minimum</span><span id="xMinVal">50 000 €</span></label>
+        <input type="range" id="xMin" min="0" max="500000" value="50000" step="10000">
+      </div>
+      <div class="range-row">
+        <label><span>Prix maximum</span><span id="xMaxVal">800 000 €</span></label>
+        <input type="range" id="xMax" min="100000" max="3000000" value="800000" step="10000">
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="metrics" id="metrics"></div>
+    <div class="panel">
+      <div style="font-size:13px;font-weight:500;margin-bottom:10px">Coût mensuel total & seuil de rentabilité</div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      <div class="legend">
+        <span><span class="legend-line" style="background:#378ADD"></span>Coût mensuel total</span>
+        <span><span class="legend-line" style="background:#D85A30;border-top:2px dashed #D85A30;height:0"></span>Loyer (cashflow neutre)</span>
+        <span>
+          <svg width="14" height="14" viewBox="0 0 14 14"><polygon points="7,0 8.5,5 14,5 9.5,8.5 11,14 7,10.5 3,14 4.5,8.5 0,5 5.5,5" fill="#D4537E"/></svg>
+          Votre bien
+        </span>
+        <span>
+          <svg width="14" height="14" viewBox="0 0 14 14"><polygon points="7,0 8.5,5 14,5 9.5,8.5 11,14 7,10.5 3,14 4.5,8.5 0,5 5.5,5" fill="#1D9E75"/></svg>
+          Prix d'équilibre
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+// Track which fields came from the listing
+const fromListing = new Set();
+
+function v(id) { return parseFloat(document.getElementById(id).value) || 0; }
+function fmt(n) { return Math.round(n).toLocaleString('fr-FR'); }
+
+function markAsFromListing(fieldId) {
+  fromListing.add(fieldId);
+  const input = document.getElementById(fieldId);
+  if (input) {
+    input.classList.add('from-listing');
+  }
+  const indicator = document.getElementById('ind-' + fieldId);
+  if (indicator) {
+    indicator.classList.add('found');
+  }
+}
+
+function clearListingMarks() {
+  fromListing.clear();
+  document.querySelectorAll('.from-listing').forEach(el => el.classList.remove('from-listing'));
+  document.querySelectorAll('.indicator.found').forEach(el => el.classList.remove('found'));
+}
+
+async function fetchListing() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) {
+    showError('Veuillez entrer une URL');
+    return;
+  }
+
+  const btn = document.getElementById('fetchBtn');
+  const loading = document.getElementById('loading');
+  const error = document.getElementById('error');
+  const info = document.getElementById('propertyInfo');
+
+  btn.disabled = true;
+  loading.classList.add('visible');
+  error.classList.remove('visible');
+  info.classList.remove('visible');
+  clearListingMarks();
+
+  try {
+    const response = await fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Erreur lors de l\'analyse');
+    }
+
+    const data = result.data;
+    console.log('Extracted data:', data);
+
+    // Populate fields with extracted data
+    if (data.prix !== null && data.prix !== undefined) {
+      document.getElementById('prix').value = data.prix;
+      markAsFromListing('prix');
+    }
+
+    if (data.chargesCopro !== null && data.chargesCopro !== undefined) {
+      document.getElementById('chargesCopro').value = data.chargesCopro;
+      markAsFromListing('chargesCopro');
+    }
+
+    if (data.taxeFonciere !== null && data.taxeFonciere !== undefined) {
+      document.getElementById('taxeFonciere').value = data.taxeFonciere;
+      markAsFromListing('taxeFonciere');
+    }
+
+    if (data.nombreChambres !== null && data.nombreChambres !== undefined) {
+      document.getElementById('nombreChambres').value = data.nombreChambres;
+      markAsFromListing('nombreChambres');
+      // Update default rent based on bedrooms (600€ per bedroom)
+      if (!fromListing.has('loyer')) {
+        document.getElementById('loyer').value = data.nombreChambres * 600;
+      }
+    }
+
+    if (data.surface !== null && data.surface !== undefined) {
+      document.getElementById('surface').value = data.surface;
+      markAsFromListing('surface');
+      // Update PNO based on surface (3€/m²)
+      document.getElementById('assurancePNO').value = Math.round(data.surface * 3);
+    }
+
+    // Show property info
+    if (data.titre || data.ville) {
+      document.getElementById('propertyTitle').textContent = data.titre || '';
+      document.getElementById('propertyLocation').textContent = 
+        [data.ville, data.codePostal].filter(Boolean).join(' ');
+      info.classList.add('visible');
+    }
+
+    buildChart();
+
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    btn.disabled = false;
+    loading.classList.remove('visible');
+  }
+}
+
+function showError(message) {
+  const error = document.getElementById('error');
+  error.textContent = message;
+  error.classList.add('visible');
+}
+
+function compute(prix) {
+  const fraisN = prix * v('fraisNotaire') / 100;
+  const totalFinance = prix + fraisN + v('travaux') + v('meubles');
+  const apportEur = prix * v('apport') / 100;
+  const capital = Math.max(0, totalFinance - apportEur);
+  const n = v('duree') * 12;
+  const r = v('taux') / 100 / 12;
+  
+  let mensCredit = 0;
+  if (r > 0 && n > 0) {
+    mensCredit = capital * r / (1 - Math.pow(1 + r, -n));
+  } else if (n > 0) {
+    mensCredit = capital / n;
+  }
+  
+  const mensAssurance = capital * v('tauxAssurance') / 100 / 12;
+  const charges = v('chargesCopro') + v('assurancePNO') / 12 + v('taxeFonciere') / 12;
+  
+  return {
+    mensCredit,
+    mensAssurance,
+    charges,
+    capital,
+    total: mensCredit + mensAssurance + charges
+  };
+}
+
+// Binary search for breakeven price where total ≈ loyer
+function findBreakeven(loyer, xMin, xMax) {
+  let lo = xMin, hi = xMax;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (compute(mid).total < loyer) lo = mid;
+    else hi = mid;
+  }
+  const price = (lo + hi) / 2;
+  return compute(price).total <= loyer + 1 ? price : null;
+}
+
+const ctx = document.getElementById('chart').getContext('2d');
+let myChart = null;
+const STEPS = 80;
+
+const starsPlugin = {
+  id: 'starsPlugin',
+  afterDatasetsDraw(chart) {
+    const { starPos, breakPos } = chart._starsData || {};
+    
+    function drawStar(cx, cy, color) {
+      const r = 11, inner = r * 0.42, spikes = 5;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.beginPath();
+      for (let i = 0; i < spikes * 2; i++) {
+        const rad = (Math.PI / spikes) * i - Math.PI / 2;
+        const d = i % 2 === 0 ? r : inner;
+        i === 0 ? ctx.moveTo(Math.cos(rad) * d, Math.sin(rad) * d) : ctx.lineTo(Math.cos(rad) * d, Math.sin(rad) * d);
+      }
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+    
+    if (starPos) drawStar(starPos.x, starPos.y, '#D4537E');
+    if (breakPos) drawStar(breakPos.x, breakPos.y, '#1D9E75');
+  }
+};
+Chart.register(starsPlugin);
+
+function buildChart() {
+  const xMin = v('xMin'), xMax = v('xMax');
+  if (xMin >= xMax) return;
+  
+  document.getElementById('xMinVal').textContent = fmt(xMin) + ' €';
+  document.getElementById('xMaxVal').textContent = fmt(xMax) + ' €';
+
+  const labels = [], dataCost = [], prices = [];
+  for (let i = 0; i <= STEPS; i++) {
+    const p = xMin + (xMax - xMin) * i / STEPS;
+    prices.push(p);
+    labels.push(fmt(p / 1000) + 'k');
+    dataCost.push(Math.round(compute(p).total));
+  }
+
+  const loyer = v('loyer');
+  const loyerData = new Array(STEPS + 1).fill(loyer);
+
+  const curPrix = v('prix');
+  const curR = compute(curPrix);
+  const cashflow = loyer - curR.total;
+
+  // Find breakeven
+  const breakevenPrix = findBreakeven(loyer, xMin, xMax);
+
+  if (myChart) myChart.destroy();
+  
+  myChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Coût mensuel',
+          data: dataCost,
+          borderColor: '#378ADD',
+          borderWidth: 2.5,
+          backgroundColor: 'rgba(55,138,221,0.08)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0,
+          pointHoverRadius: 4
+        },
+        {
+          label: 'Loyer',
+          data: loyerData,
+          borderColor: '#D85A30',
+          borderWidth: 1.5,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          tension: 0
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { onComplete: () => positionStars() },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title(i) { return 'Prix : ' + i[0].label; },
+            label(i) { return i.datasetIndex === 0 ? ' Coût : ' + fmt(i.raw) + ' €/mois' : ' Loyer : ' + fmt(i.raw) + ' €/mois'; }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 10, autoSkip: true, maxRotation: 0, color: '#888', font: { size: 11 } } },
+        y: { grid: { color: 'rgba(128,128,128,.1)' }, ticks: { color: '#888', font: { size: 11 }, callback(v) { return fmt(v) + '€'; } } }
+      }
+    }
+  });
+
+  function positionStars() {
+    const scaleX = myChart.scales.x, scaleY = myChart.scales.y;
+    let starPos = null, breakPos = null;
+
+    // Current price star
+    const curFrac = (curPrix - xMin) / (xMax - xMin);
+    const curIdx = curFrac * STEPS;
+    if (curIdx >= 0 && curIdx <= STEPS) {
+      const x = scaleX.getPixelForValue(Math.round(curIdx));
+      const y = scaleY.getPixelForValue(Math.round(curR.total));
+      starPos = { x, y };
+    }
+
+    // Breakeven star
+    if (breakevenPrix !== null) {
+      const bFrac = (breakevenPrix - xMin) / (xMax - xMin);
+      const bIdx = bFrac * STEPS;
+      if (bIdx >= 0 && bIdx <= STEPS) {
+        const x = scaleX.getPixelForValue(Math.round(bIdx));
+        const y = scaleY.getPixelForValue(loyer);
+        breakPos = { x, y };
+      }
+    }
+
+    myChart._starsData = { starPos, breakPos };
+    myChart.draw();
+  }
+
+  positionStars();
+  updateMetrics(curR, curPrix, cashflow, breakevenPrix);
+}
+
+function updateMetrics(r, prix, cashflow, breakevenPrix) {
+  const beven = breakevenPrix !== null
+    ? `<div class="val" style="color:#0F6E56">${fmt(breakevenPrix)} €</div>`
+    : `<div class="val" style="color:#993C1D">Hors plage</div>`;
+  const cfClass = cashflow >= 0 ? 'green' : 'warn';
+
+  const apportEur = prix * v('apport') / 100;
+  const loyer = v('loyer');
+  const surface = v('surface');
+  
+  // Calculate rent yield (rendement brut)
+  const rendementBrut = prix > 0 ? ((loyer * 12) / prix * 100) : 0;
+  
+  // Net yield (after charges)
+  const chargesAnnuelles = v('chargesCopro') * 12 + v('assurancePNO') + v('taxeFonciere');
+  const revenusNetsAnnuels = (loyer * 12) - chargesAnnuelles;
+  const rendementNet = prix > 0 ? (revenusNetsAnnuels / prix * 100) : 0;
+  
+  // Price per m²
+  const prixM2 = surface > 0 ? prix / surface : 0;
+
+  // IRR calculation (20 years with 2% annual appreciation)
+  const salePrice = prix * Math.pow(1.02, 20);
+  const capital = r.capital;
+  const rMens = v('taux') / 100 / 12;
+  const nTotal = v('duree') * 12;
+  
+  let crd = 0;
+  if (nTotal > 240 && rMens > 0) {
+    crd = capital * Math.pow(1 + rMens, 240) - r.mensCredit * (Math.pow(1 + rMens, 240) - 1) / rMens;
+    crd = Math.max(0, crd);
+  }
+  const netProceeds = salePrice - crd;
+  const cfMensuel = cashflow;
+
+  let rendement = null;
+  if (apportEur > 0) {
+    function npv(rm) {
+      let pv_cf = rm === 0 ? cfMensuel * 240 : cfMensuel * (1 - Math.pow(1 + rm, -240)) / rm;
+      let pv_sale = netProceeds / Math.pow(1 + rm, 240);
+      return -apportEur + pv_cf + pv_sale;
+    }
+    let lo = -0.05 / 12, hi = 1 / 12;
+    if (npv(lo) * npv(hi) < 0) {
+      for (let i = 0; i < 80; i++) {
+        const mid = (lo + hi) / 2;
+        npv(mid) > 0 ? lo = mid : hi = mid;
+      }
+      rendement = (Math.pow(1 + (lo + hi) / 2, 12) - 1) * 100;
+    }
+  }
+  
+  const rendStr = rendement !== null
+    ? `<div class="val" style="color:#185FA5">${rendement.toFixed(1)}%/an</div>`
+    : `<div class="val" style="color:#999">—</div>`;
+
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric accent"><div class="lbl">Mensualité totale</div><div class="val">${fmt(r.total)} €/mois</div></div>
+    <div class="metric ${cfClass}"><div class="lbl">Cashflow mensuel</div><div class="val">${cashflow >= 0 ? '+' : ''}${fmt(cashflow)} €/mois</div></div>
+    <div class="metric"><div class="lbl">Capital emprunté</div><div class="val">${fmt(r.capital)} €</div></div>
+    <div class="metric"><div class="lbl">Apport</div><div class="val">${fmt(apportEur)} €</div></div>
+    <div class="metric"><div class="lbl">Rendement brut</div><div class="val">${rendementBrut.toFixed(1)}%</div></div>
+    <div class="metric"><div class="lbl">Rendement net</div><div class="val">${rendementNet.toFixed(1)}%</div></div>
+    <div class="metric"><div class="lbl">Prix/m²</div><div class="val">${fmt(prixM2)} €/m²</div></div>
+    <div class="metric"><div class="lbl">Prix d'équilibre cashflow</div>${beven}</div>
+    <div class="metric" style="grid-column:1/-1;border:1px solid rgba(24,95,165,.25)"><div class="lbl">Rendement annualisé — vente à 20 ans (hausse 2%/an)</div>${rendStr}</div>
+  `;
+}
+
+// Initialize with default values based on bedrooms
+function initDefaults() {
+  const chambres = v('nombreChambres');
+  document.getElementById('loyer').value = chambres * 600;
+  
+  const surface = v('surface');
+  document.getElementById('assurancePNO').value = Math.round(surface * 3);
+}
+
+// Event listeners
+document.querySelectorAll('input').forEach(el => {
+  el.addEventListener('input', buildChart);
+});
+
+// Update loyer when bedrooms change (only if not from listing)
+document.getElementById('nombreChambres').addEventListener('input', function() {
+  if (!fromListing.has('loyer')) {
+    document.getElementById('loyer').value = this.value * 600;
+  }
+});
+
+// Update PNO when surface changes
+document.getElementById('surface').addEventListener('input', function() {
+  document.getElementById('assurancePNO').value = Math.round(this.value * 3);
+});
+
+// Enter key to fetch
+document.getElementById('urlInput').addEventListener('keypress', function(e) {
+  if (e.key === 'Enter') {
+    fetchListing();
+  }
+});
+
+// Initialize
+initDefaults();
+buildChart();
+</script>
+</body>
+</html>
