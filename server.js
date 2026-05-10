@@ -86,6 +86,21 @@ async function fetchWithProxy(url, options = {}) {
   }
 }
 
+// Fetch URL content using Jina Reader (renders JavaScript)
+async function fetchWithJina(url) {
+  const jinaUrl = `https://r.jina.ai/${url}`;
+  console.log('Fetching with Jina Reader...');
+  const response = await axios.get(jinaUrl, {
+    headers: {
+      'Accept': 'text/plain',
+      'X-Return-Format': 'text'
+    },
+    timeout: 45000
+  });
+  console.log(`Jina Reader returned ${response.data.length} characters`);
+  return response.data;
+}
+
 // Fetch and parse property listing
 app.post('/api/extract', async (req, res) => {
   try {
@@ -97,76 +112,60 @@ app.post('/api/extract', async (req, res) => {
 
     console.log(`Fetching URL: ${url}`);
 
-    // ===== SPECIAL HANDLING FOR SELOGER =====
+    // ===== FOR SELOGER: Use Jina Reader directly (their API doesn't work) =====
     if (url.includes('seloger.com')) {
       try {
-        // Extract ad ID from URL: .../266396155.htm
-        const idMatch = url.match(/\/(\d+)\.htm/);
-        if (idMatch) {
-          const adId = idMatch[1];
-          console.log(`SeLoger ad ID: ${adId}`);
+        const textContent = await fetchWithJina(url);
+        
+        if (textContent.length > 100) {
+          console.log('Using LLM to extract SeLoger data from Jina text...');
           
-          // SeLoger API endpoint
-          const apiUrl = `https://www.seloger.com/detail,json,caracteristique_bien.json?idannonce=${adId}`;
-          console.log(`Fetching SeLoger API: ${apiUrl}`);
-          
-          try {
-            const adData = await fetchWithProxy(apiUrl, { accept: 'application/json' });
-            console.log('SeLoger API response:', typeof adData === 'string' ? adData.substring(0, 200) : Object.keys(adData));
-            
-            // Parse if string
-            const data_parsed = typeof adData === 'string' ? JSON.parse(adData) : adData;
-            
-            if (data_parsed) {
-              const data = {
-                prix: data_parsed.prix || data_parsed.price || null,
-                chargesCopro: data_parsed.charges || null,
-                taxeFonciere: data_parsed.taxeFonciere || null,
-                nombreChambres: data_parsed.nbChambres || data_parsed.nb_chambres || null,
-                surface: data_parsed.surface || data_parsed.surfaceHabitable || null,
-                titre: data_parsed.titre || data_parsed.title || null,
-                ville: data_parsed.ville || data_parsed.city || null,
-                codePostal: data_parsed.codePostal || data_parsed.cp || null
-              };
-              
-              console.log('SeLoger extracted data:', data);
-              
-              // If we got at least price or surface, return it
-              if (data.prix || data.surface) {
-                return res.json({ success: true, data });
+          const completion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+              {
+                role: 'system',
+                content: `Tu extrais les informations d'une annonce immobilière SeLoger.
+Retourne UNIQUEMENT un objet JSON avec ces champs (null si non trouvé, ne jamais inventer):
+
+{
+  "prix": number | null,           // Prix de vente en euros
+  "chargesCopro": number | null,   // Charges de copropriété mensuelles en euros
+  "taxeFonciere": number | null,   // Taxe foncière annuelle en euros
+  "nombreChambres": number | null, // Nombre de chambres (pas pièces)
+  "surface": number | null,        // Surface en m²
+  "titre": string | null,          // Titre de l'annonce
+  "ville": string | null,          // Ville
+  "codePostal": string | null      // Code postal (5 chiffres)
+}
+
+Important:
+- Cherche le prix de vente (pas de loyer)
+- Les charges sont mensuelles
+- Ne confonds pas pièces et chambres`
+              },
+              {
+                role: 'user',
+                content: `Annonce SeLoger:\n\n${textContent.substring(0, 10000)}`
               }
-            }
-          } catch (apiError) {
-            console.log('SeLoger API failed:', apiError.message);
-          }
+            ],
+            temperature: 0.1,
+            max_tokens: 500
+          });
           
-          // Try alternative API endpoint
-          const altApiUrl = `https://www.seloger.com/annonces/achat/appartement/detail.json?id=${adId}`;
-          try {
-            const altData = await fetchWithProxy(altApiUrl, { accept: 'application/json' });
-            console.log('SeLoger alt API response received');
-            const parsed = typeof altData === 'string' ? JSON.parse(altData) : altData;
-            if (parsed && (parsed.prix || parsed.price)) {
-              const data = {
-                prix: parsed.prix || parsed.price || null,
-                chargesCopro: parsed.charges || null,
-                taxeFonciere: parsed.taxeFonciere || null,
-                nombreChambres: parsed.nbChambres || null,
-                surface: parsed.surface || null,
-                titre: parsed.titre || null,
-                ville: parsed.ville || null,
-                codePostal: parsed.codePostal || null
-              };
-              return res.json({ success: true, data });
-            }
-          } catch (altError) {
-            console.log('SeLoger alt API failed:', altError.message);
+          const content = completion.choices[0].message.content;
+          console.log('SeLoger LLM response:', content);
+          
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const data = JSON.parse(jsonMatch[0]);
+            return res.json({ success: true, data });
           }
         }
-        // Fall through to regular extraction if API fails
       } catch (selogerError) {
         console.error('SeLoger extraction error:', selogerError.message);
       }
+      // Fall through to generic extraction
     }
 
     // ===== SPECIAL HANDLING FOR BIENICI =====
@@ -291,7 +290,52 @@ Attention:
         }
       } catch (bieniciError) {
         console.error('BienIci API error:', bieniciError.message);
-        // Fall through to regular extraction if API fails
+        
+        // Fallback: use Jina Reader for BienIci
+        try {
+          console.log('Trying Jina Reader for BienIci...');
+          const textContent = await fetchWithJina(url);
+          
+          if (textContent.length > 200) {
+            const completion = await openai.chat.completions.create({
+              model: 'gpt-4o-mini',
+              messages: [
+                {
+                  role: 'system',
+                  content: `Tu extrais les informations d'une annonce immobilière BienIci.
+Retourne UNIQUEMENT un objet JSON avec ces champs (null si non trouvé, ne jamais inventer):
+
+{
+  "prix": number | null,           // Prix de vente en euros
+  "chargesCopro": number | null,   // Charges de copropriété mensuelles
+  "taxeFonciere": number | null,   // Taxe foncière annuelle
+  "nombreChambres": number | null, // Nombre de chambres
+  "surface": number | null,        // Surface en m²
+  "titre": string | null,
+  "ville": string | null,
+  "codePostal": string | null
+}`
+                },
+                {
+                  role: 'user',
+                  content: `Annonce BienIci:\n\n${textContent.substring(0, 10000)}`
+                }
+              ],
+              temperature: 0.1,
+              max_tokens: 500
+            });
+            
+            const content = completion.choices[0].message.content;
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const data = JSON.parse(jsonMatch[0]);
+              console.log('BienIci Jina extracted data:', data);
+              return res.json({ success: true, data });
+            }
+          }
+        } catch (jinaError) {
+          console.error('BienIci Jina fallback error:', jinaError.message);
+        }
       }
     }
 
