@@ -86,6 +86,21 @@ async function fetchWithProxy(url, options = {}) {
   }
 }
 
+// Fetch URL content using ScrapingAnt (renders JavaScript, handles anti-bot)
+async function fetchWithScrapingAnt(url) {
+  const apiKey = process.env.SCRAPINGANT_API_KEY;
+  if (!apiKey) {
+    throw new Error('SCRAPINGANT_API_KEY not configured');
+  }
+  
+  const apiUrl = `https://api.scrapingant.com/v2/general?url=${encodeURIComponent(url)}&x-api-key=${apiKey}&browser=false`;
+  console.log('Fetching with ScrapingAnt...');
+  
+  const response = await axios.get(apiUrl, { timeout: 60000 });
+  console.log(`ScrapingAnt returned ${response.data.length} characters`);
+  return response.data;
+}
+
 // Fetch URL content using Jina Reader (renders JavaScript)
 async function fetchWithJina(url) {
   const jinaUrl = `https://r.jina.ai/${url}`;
@@ -101,6 +116,36 @@ async function fetchWithJina(url) {
   return response.data;
 }
 
+// Smart fetch for SPAs - tries ScrapingAnt first, then Jina
+async function fetchRenderedContent(url) {
+  // Try ScrapingAnt first (best for anti-bot sites like SeLoger)
+  if (process.env.SCRAPINGANT_API_KEY) {
+    try {
+      const html = await fetchWithScrapingAnt(url);
+      if (html && html.length > 500) {
+        // Parse HTML and extract text
+        const $ = cheerio.load(html);
+        $('script').remove();
+        $('style').remove();
+        const text = $('body').text().replace(/\s+/g, ' ').trim();
+        if (text.length > 200) {
+          return text;
+        }
+      }
+    } catch (e) {
+      console.log('ScrapingAnt failed:', e.message);
+    }
+  }
+  
+  // Fallback to Jina Reader
+  try {
+    return await fetchWithJina(url);
+  } catch (e) {
+    console.log('Jina Reader failed:', e.message);
+    throw e;
+  }
+}
+
 // Fetch and parse property listing
 app.post('/api/extract', async (req, res) => {
   try {
@@ -112,13 +157,13 @@ app.post('/api/extract', async (req, res) => {
 
     console.log(`Fetching URL: ${url}`);
 
-    // ===== FOR SELOGER: Use Jina Reader directly (their API doesn't work) =====
+    // ===== FOR SELOGER: Use ScrapingAnt or Jina Reader =====
     if (url.includes('seloger.com')) {
       try {
-        const textContent = await fetchWithJina(url);
+        const textContent = await fetchRenderedContent(url);
         
         if (textContent.length > 100) {
-          console.log('Using LLM to extract SeLoger data from Jina text...');
+          console.log(`Got ${textContent.length} chars, using LLM to extract SeLoger data...`);
           
           const completion = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
@@ -291,10 +336,10 @@ Attention:
       } catch (bieniciError) {
         console.error('BienIci API error:', bieniciError.message);
         
-        // Fallback: use Jina Reader for BienIci
+        // Fallback: use ScrapingAnt or Jina Reader for BienIci
         try {
-          console.log('Trying Jina Reader for BienIci...');
-          const textContent = await fetchWithJina(url);
+          console.log('Trying rendered content fetch for BienIci...');
+          const textContent = await fetchRenderedContent(url);
           
           if (textContent.length > 200) {
             const completion = await openai.chat.completions.create({
@@ -329,12 +374,12 @@ Retourne UNIQUEMENT un objet JSON avec ces champs (null si non trouvé, ne jamai
             const jsonMatch = content.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
               const data = JSON.parse(jsonMatch[0]);
-              console.log('BienIci Jina extracted data:', data);
+              console.log('BienIci rendered content extracted data:', data);
               return res.json({ success: true, data });
             }
           }
-        } catch (jinaError) {
-          console.error('BienIci Jina fallback error:', jinaError.message);
+        } catch (fallbackError) {
+          console.error('BienIci fallback error:', fallbackError.message);
         }
       }
     }
