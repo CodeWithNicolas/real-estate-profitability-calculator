@@ -86,6 +86,33 @@ async function fetchWithProxy(url, options = {}) {
   }
 }
 
+// Fetch URL content using Firecrawl (best for SPAs, 500 free credits/month)
+async function fetchWithFirecrawl(url) {
+  const apiKey = process.env.FIRECRAWL_API_KEY;
+  if (!apiKey) {
+    throw new Error('FIRECRAWL_API_KEY not configured');
+  }
+  
+  console.log('Fetching with Firecrawl...');
+  const response = await axios.post('https://api.firecrawl.dev/v1/scrape', {
+    url: url,
+    formats: ['markdown'],
+    waitFor: 3000
+  }, {
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    timeout: 60000
+  });
+  
+  if (response.data.success && response.data.data?.markdown) {
+    console.log(`Firecrawl returned ${response.data.data.markdown.length} characters`);
+    return response.data.data.markdown;
+  }
+  throw new Error('Firecrawl returned no content');
+}
+
 // Fetch URL content using ScrapingAnt (renders JavaScript, handles anti-bot)
 async function fetchWithScrapingAnt(url) {
   const apiKey = process.env.SCRAPINGANT_API_KEY;
@@ -117,9 +144,21 @@ async function fetchWithJina(url) {
   return response.data;
 }
 
-// Smart fetch for SPAs - tries ScrapingAnt first, then Jina
+// Smart fetch for SPAs - tries Firecrawl first, then ScrapingAnt, then Jina
 async function fetchRenderedContent(url) {
-  // Try ScrapingAnt first (best for anti-bot sites like SeLoger)
+  // Try Firecrawl first (best for SPAs)
+  if (process.env.FIRECRAWL_API_KEY) {
+    try {
+      const markdown = await fetchWithFirecrawl(url);
+      if (markdown && markdown.length > 300) {
+        return markdown;
+      }
+    } catch (e) {
+      console.log('Firecrawl failed:', e.message);
+    }
+  }
+  
+  // Try ScrapingAnt (for anti-bot sites)
   if (process.env.SCRAPINGANT_API_KEY) {
     try {
       const html = await fetchWithScrapingAnt(url);
