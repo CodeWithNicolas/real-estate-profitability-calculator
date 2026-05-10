@@ -93,10 +93,11 @@ async function fetchWithScrapingAnt(url) {
     throw new Error('SCRAPINGANT_API_KEY not configured');
   }
   
-  const apiUrl = `https://api.scrapingant.com/v2/general?url=${encodeURIComponent(url)}&x-api-key=${apiKey}&browser=false`;
-  console.log('Fetching with ScrapingAnt...');
+  // Use browser=true for JavaScript rendering, proxy_country=FR for French IPs
+  const apiUrl = `https://api.scrapingant.com/v2/general?url=${encodeURIComponent(url)}&x-api-key=${apiKey}&browser=true&proxy_country=FR`;
+  console.log('Fetching with ScrapingAnt (browser mode)...');
   
-  const response = await axios.get(apiUrl, { timeout: 60000 });
+  const response = await axios.get(apiUrl, { timeout: 120000 });
   console.log(`ScrapingAnt returned ${response.data.length} characters`);
   return response.data;
 }
