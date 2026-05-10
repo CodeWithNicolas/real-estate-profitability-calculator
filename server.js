@@ -15,6 +15,59 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_SECRET_KEY
 });
 
+// Helper function to fetch URL with proxy fallback
+async function fetchWithProxy(url, options = {}) {
+  const defaultHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': options.accept || 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+    'Cache-Control': 'no-cache'
+  };
+
+  // Try direct fetch first
+  try {
+    console.log('Trying direct fetch...');
+    const response = await axios.get(url, {
+      headers: { ...defaultHeaders, ...options.headers },
+      timeout: 15000
+    });
+    return response.data;
+  } catch (directError) {
+    console.log(`Direct fetch failed: ${directError.message}`);
+    
+    // If 403, try with proxies
+    if (directError.response?.status === 403 || directError.response?.status === 401) {
+      // List of free CORS proxies to try
+      const proxies = [
+        (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+        (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+        (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+      ];
+      
+      for (const proxyFn of proxies) {
+        const proxyUrl = proxyFn(url);
+        try {
+          console.log(`Trying proxy: ${proxyUrl.substring(0, 50)}...`);
+          const response = await axios.get(proxyUrl, {
+            headers: {
+              'User-Agent': defaultHeaders['User-Agent']
+            },
+            timeout: 20000
+          });
+          console.log('Proxy fetch successful');
+          return response.data;
+        } catch (proxyError) {
+          console.log(`Proxy failed: ${proxyError.message}`);
+          continue;
+        }
+      }
+    }
+    
+    // Re-throw original error if all proxies failed
+    throw directError;
+  }
+}
+
 // Fetch and parse property listing
 app.post('/api/extract', async (req, res) => {
   try {
@@ -53,17 +106,11 @@ app.post('/api/extract', async (req, res) => {
           const apiUrl = `https://www.bienici.com/realEstateAd.json?id=${adId}`;
           console.log(`Fetching BienIci API: ${apiUrl}`);
           
-          const apiResponse = await axios.get(apiUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'application/json',
-              'Accept-Language': 'fr-FR,fr;q=0.9',
-              'Referer': 'https://www.bienici.com/'
-            },
-            timeout: 15000
+          const adData = await fetchWithProxy(apiUrl, {
+            accept: 'application/json',
+            headers: { 'Referer': 'https://www.bienici.com/' }
           });
           
-          const adData = apiResponse.data;
           console.log('BienIci API response keys:', Object.keys(adData));
           
           // Calculate monthly charges from annual if available
@@ -159,17 +206,7 @@ Attention:
     }
 
     // ===== REGULAR EXTRACTION FOR OTHER SITES =====
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-        'Cache-Control': 'no-cache'
-      },
-      timeout: 15000
-    });
-
-    const html = response.data;
+    const html = await fetchWithProxy(url);
     const $ = cheerio.load(html);
 
     let textContent = '';
